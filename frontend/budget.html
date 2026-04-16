@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Budget Limits - SmartTracker</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="js/api.js"></script>
+  <script src="https://unpkg.com/lucide@latest"></script>
+</head>
+<body class="bg-background text-textMain font-sans flex h-screen overflow-hidden">
+
+  <!-- Sidebar -->
+  <div id="sidebar-container"></div>
+  <script src="js/sidebar.js"></script>
+
+  <!-- Main Content -->
+  <main class="flex-1 overflow-y-auto p-8 relative">
+    <div class="pb-10 max-w-4xl mx-auto">
+      
+      <div class="mb-8 flex items-center justify-between">
+        <h1 class="text-3xl font-bold flex items-center gap-3">
+          <i data-lucide="target" class="text-accent w-8 h-8"></i> Budget Management
+        </h1>
+      </div>
+
+      <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+        
+        <!-- Budget Form -->
+        <div class="bg-surface/80 backdrop-blur-md border border-white/10 shadow-xl rounded-2xl p-6 h-fit">
+          <h2 class="text-xl font-semibold mb-4">Set Category Limits</h2>
+          <p class="text-sm text-textMuted mb-6">Define a budget to receive email alerts when expenses approach or exceed your limits.</p>
+          
+          <form id="budget-form" class="space-y-4">
+            <div id="form-message" class="hidden p-3 rounded-lg text-sm border"></div>
+            
+            <div>
+              <label class="block text-sm font-medium text-textMuted mb-2">Category</label>
+              <select id="category" required class="w-full bg-background/50 border border-white/10 rounded-xl py-2 px-3 text-white focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent transition-all appearance-none cursor-pointer">
+              </select>
+            </div>
+            
+            <div>
+              <label class="block text-sm font-medium text-textMuted mb-2">Monthly Limit <span id="budget-curr-label">(...)</span></label>
+              <div class="relative">
+                <span id="budget-curr-symbol" class="absolute left-3 top-1/2 -translate-y-1/2 text-textMuted">$</span>
+                <input type="number" id="monthlyLimit" step="1" required min="1"
+                  class="w-full bg-background/50 border border-white/10 rounded-xl py-2 pl-7 pr-3 text-white focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent transition-all">
+              </div>
+            </div>
+
+            <!-- hidden inputs for testing custom month/year, defaulting to current -->
+            <input type="hidden" id="month" value="">
+            <input type="hidden" id="year" value="">
+
+            <button type="submit" id="submit-btn" class="w-full bg-accent hover:bg-accent/90 text-white font-medium py-2 rounded-xl transition-all shadow-lg shadow-accent/20 flex justify-center items-center gap-2 mt-2">
+              <i data-lucide="save" class="w-4 h-4"></i> Save Budget
+            </button>
+          </form>
+        </div>
+
+        <!-- Current Budgets list -->
+        <div class="lg:col-span-2 bg-surface/80 backdrop-blur-md border border-white/10 shadow-xl rounded-2xl p-6">
+          <h2 class="text-xl font-semibold mb-4">Current Active Budgets</h2>
+          
+          <div id="loading" class="text-textMuted hidden">Loading budgets...</div>
+          
+          <div class="overflow-x-auto">
+            <table class="w-full text-left border-collapse min-w-max">
+              <thead>
+                <tr class="border-b border-white/10 text-textMuted">
+                  <th class="pb-3 px-4 font-medium">Category</th>
+                  <th class="pb-3 px-4 font-medium">Month/Year</th>
+                  <th class="pb-3 px-4 font-medium text-right">Monthly Limit</th>
+                </tr>
+              </thead>
+              <tbody id="budgets-body">
+                <tr><td colspan="3" class="py-4 text-center text-textMuted">No budgets configured.</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </main>
+
+  <script>
+    lucide.createIcons();
+
+    // Init hidden fields w/ current date
+    const d = new Date();
+    document.getElementById('month').value = d.getMonth() + 1; // 1-12
+    document.getElementById('year').value = d.getFullYear();
+
+    async function loadBudgets() {
+      const tbody = document.getElementById('budgets-body');
+      document.getElementById('loading').classList.remove('hidden');
+      tbody.innerHTML = '';
+
+      try {
+        const token = localStorage.getItem('token');
+        const m = d.getMonth() + 1;
+        const y = d.getFullYear();
+        const res = await fetch(`/api/budgets?month=${m}&year=${y}`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        
+        if (res.status === 401) logout();
+
+        const budgets = await res.json();
+        
+        document.getElementById('loading').classList.add('hidden');
+
+        if (!budgets || budgets.length === 0) {
+          tbody.innerHTML = '<tr><td colspan="3" class="py-4 text-center text-textMuted">No budgets configured for this month.</td></tr>';
+        } else {
+          const curr = localStorage.getItem('currency') || '$';
+          budgets.forEach(b => {
+             tbody.innerHTML += `
+              <tr class="border-b border-white/5 hover:bg-white/5 transition-colors">
+                <td class="py-3 px-4 flex items-center gap-2">
+                  <div class="w-2 h-2 rounded-full bg-accent"></div>
+                  ${b.category}
+                </td>
+                <td class="py-3 px-4 text-textMuted">${b.month}/${b.year}</td>
+                <td class="py-3 px-4 font-semibold text-right text-accent">${curr}${b.monthlyLimit.toLocaleString()}</td>
+              </tr>
+            `;
+          });
+        }
+      } catch (e) {
+        document.getElementById('loading').textContent = 'Failed to load budgets.';
+      }
+    }
+
+    const form = document.getElementById('budget-form');
+    const msgBox = document.getElementById('form-message');
+    const submitBtn = document.getElementById('submit-btn');
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      msgBox.classList.add('hidden');
+      msgBox.className = 'p-3 rounded-lg text-sm border hidden';
+      
+      const originalBtnText = submitBtn.innerHTML;
+      submitBtn.innerHTML = `<i data-lucide="loader" class="w-4 h-4 animate-spin"></i> Saving...`;
+      submitBtn.disabled = true;
+
+      const payload = {
+        category: document.getElementById('category').value,
+        monthlyLimit: parseFloat(document.getElementById('monthlyLimit').value),
+        month: parseInt(document.getElementById('month').value),
+        year: parseInt(document.getElementById('year').value)
+      };
+
+      try {
+        const token = localStorage.getItem('token');
+        const res = await fetch('/api/budgets', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          },
+          body: JSON.stringify(payload)
+        });
+
+        if (res.status === 401) logout();
+        
+        if (res.ok) {
+          msgBox.textContent = 'Budget saved successfully!';
+          msgBox.classList.remove('hidden');
+          msgBox.classList.add('bg-accent/20', 'text-accent', 'border-accent/30');
+          // clear limit
+          document.getElementById('monthlyLimit').value = '';
+          loadBudgets();
+        } else {
+          const data = await res.json();
+          msgBox.textContent = data.msg || 'Failed to save budget';
+          msgBox.classList.remove('hidden');
+          msgBox.classList.add('bg-danger/20', 'text-danger', 'border-danger/30');
+        }
+      } catch (err) {
+        msgBox.textContent = 'Network error. Please try again.';
+        msgBox.classList.remove('hidden');
+        msgBox.classList.add('bg-danger/20', 'text-danger', 'border-danger/30');
+      } finally {
+        submitBtn.innerHTML = originalBtnText;
+        submitBtn.disabled = false;
+        lucide.createIcons();
+      }
+    });
+
+    document.addEventListener('DOMContentLoaded', () => {
+      loadBudgets();
+      
+      const curr = localStorage.getItem('currency') || '$';
+      document.getElementById('budget-curr-label').textContent = `(${curr})`;
+      document.getElementById('budget-curr-symbol').textContent = curr;
+
+      const catSelect = document.getElementById('category');
+      const customCats = localStorage.getItem('categories') || 'Food, Travel, Bills, Shopping, Other';
+      const catsArray = customCats.split(',').map(c => c.trim()).filter(c => c);
+      catsArray.forEach(cat => {
+        const op = document.createElement('option');
+        op.value = cat;
+        op.textContent = cat;
+        catSelect.appendChild(op);
+      });
+    });
+  </script>
+</body>
+</html>

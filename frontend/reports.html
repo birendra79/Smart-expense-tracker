@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Reports - SmartTracker</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="js/api.js"></script>
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <!-- jsPDF -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.28/jspdf.plugin.autotable.min.js"></script>
+</head>
+<body class="bg-background text-textMain font-sans flex h-screen overflow-hidden">
+
+  <!-- Sidebar -->
+  <div id="sidebar-container"></div>
+  <script src="js/sidebar.js"></script>
+
+  <!-- Main Content -->
+  <main class="flex-1 overflow-y-auto p-8 relative">
+    <div class="pb-10 max-w-6xl mx-auto">
+      
+      <div class="flex justify-between items-center mb-8">
+        <h1 class="text-3xl font-bold flex items-center gap-3">
+          <i data-lucide="file-text" class="text-primary w-8 h-8"></i> Expense Reports
+        </h1>
+        <button id="export-pdf" class="bg-primary hover:bg-primary/90 text-white px-4 py-2 rounded-xl transition-all shadow-lg flex items-center gap-2">
+          <i data-lucide="download" class="w-4 h-4"></i> Export PDF
+        </button>
+      </div>
+
+      <div class="bg-surface/80 backdrop-blur-md border border-white/10 shadow-xl rounded-2xl p-6">
+        
+        <div class="flex flex-col md:flex-row gap-4 mb-6">
+          <div class="flex-1">
+            <input type="text" id="search-input" placeholder="Search by description..." class="w-full bg-background/50 border border-white/10 rounded-xl py-2 px-4 text-white focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-all">
+          </div>
+          <div>
+            <select id="category-filter" class="w-full bg-background/50 border border-white/10 rounded-xl py-2 px-4 text-white focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-all cursor-pointer">
+              <option value="">All Categories</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="overflow-x-auto">
+          <table class="w-full text-left border-collapse min-w-max" id="report-table">
+            <thead>
+              <tr class="border-b border-white/10 text-textMuted">
+                <th class="pb-3 px-4 font-medium">Date</th>
+                <th class="pb-3 px-4 font-medium">Description</th>
+                <th class="pb-3 px-4 font-medium">Category</th>
+                <th class="pb-3 px-4 font-medium">Method</th>
+                <th class="pb-3 px-4 font-medium text-right">Amount</th>
+              </tr>
+            </thead>
+            <tbody id="expenses-body">
+              <tr><td colspan="5" class="py-4 text-center text-textMuted">Loading expenses...</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+      </div>
+    </div>
+  </main>
+
+  <script>
+    lucide.createIcons();
+    let allExpenses = [];
+
+    async function loadExpenses() {
+      try {
+        const token = localStorage.getItem('token');
+        const res = await fetch('/api/expenses', {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        
+        if (res.status === 401) logout();
+
+        allExpenses = await res.json();
+        renderTable(allExpenses);
+      } catch (err) {
+        console.error("Failed to load expenses", err);
+      }
+    }
+
+    function renderTable(data) {
+      const tbody = document.getElementById('expenses-body');
+      tbody.innerHTML = '';
+      
+      if (!data || data.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="5" class="py-4 text-center text-textMuted">No expenses found matching the criteria.</td></tr>';
+        return;
+      }
+
+      const curr = localStorage.getItem('currency') || '$';
+      data.forEach(exp => {
+        const method = exp.paymentMethod || 'Other';
+        tbody.innerHTML += `
+          <tr class="border-b border-white/5 hover:bg-white/5 transition-colors">
+            <td class="py-3 px-4 whitespace-nowrap">${new Date(exp.date).toLocaleDateString()}</td>
+            <td class="py-3 px-4">${exp.description}</td>
+            <td class="py-3 px-4">
+              <span class="bg-white/10 px-2 py-1 rounded text-sm text-secondary">${exp.category}</span>
+            </td>
+            <td class="py-3 px-4 text-textMuted text-sm">${method}</td>
+            <td class="py-3 px-4 font-medium text-right text-red-400">-${curr}${exp.amount.toFixed(2)}</td>
+          </tr>
+        `;
+      });
+    }
+
+    function handleFilters() {
+      const search = document.getElementById('search-input').value.toLowerCase();
+      const cat = document.getElementById('category-filter').value;
+
+      const filtered = allExpenses.filter(exp => {
+        const matchSearch = exp.description.toLowerCase().includes(search);
+        const matchCat = cat === '' || exp.category === cat;
+        return matchSearch && matchCat;
+      });
+
+      renderTable(filtered);
+    }
+
+    document.getElementById('search-input').addEventListener('input', handleFilters);
+    document.getElementById('category-filter').addEventListener('change', handleFilters);
+
+    // PDF Export Logic
+    document.getElementById('export-pdf').addEventListener('click', () => {
+      const { jsPDF } = window.jspdf;
+      const doc = new jsPDF();
+
+      doc.setFontSize(18);
+      doc.text("Expense Report - SmartTracker", 14, 22);
+      
+      doc.setFontSize(11);
+      doc.setTextColor(100);
+      doc.text("Generated on: " + new Date().toLocaleString(), 14, 30);
+
+      // We extract data directly from the currently filtered rows
+      const search = document.getElementById('search-input').value.toLowerCase();
+      const cat = document.getElementById('category-filter').value;
+      const filtered = allExpenses.filter(exp => {
+        const matchSearch = exp.description.toLowerCase().includes(search);
+        const matchCat = cat === '' || exp.category === cat;
+        return matchSearch && matchCat;
+      });
+
+      const curr = localStorage.getItem('currency') || '$';
+      const bodyData = filtered.map(exp => [
+        new Date(exp.date).toLocaleDateString(),
+        exp.description,
+        exp.category,
+        exp.paymentMethod || 'Other',
+        curr + exp.amount.toFixed(2)
+      ]);
+
+      doc.autoTable({
+        startY: 36,
+        head: [['Date', 'Description', 'Category', 'Method', 'Amount']],
+        body: bodyData,
+        theme: 'striped',
+        headStyles: { fillColor: [59, 130, 246] }, // Tailwind primary blue
+      });
+
+      doc.save('expense_report.pdf');
+    });
+
+    document.addEventListener('DOMContentLoaded', () => {
+      loadExpenses();
+
+      const catSelect = document.getElementById('category-filter');
+      const customCats = localStorage.getItem('categories') || 'Food, Travel, Bills, Shopping, Other';
+      const catsArray = customCats.split(',').map(c => c.trim()).filter(c => c);
+      catsArray.forEach(cat => {
+        const op = document.createElement('option');
+        op.value = cat;
+        op.textContent = cat;
+        catSelect.appendChild(op);
+      });
+    });
+  </script>
+</body>
+</html>

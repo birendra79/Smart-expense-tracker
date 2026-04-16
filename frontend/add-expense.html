@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Add Expense - SmartTracker</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="js/api.js"></script>
+  <script src="https://unpkg.com/lucide@latest"></script>
+</head>
+<body class="bg-background text-textMain font-sans flex h-screen overflow-hidden">
+
+  <!-- Sidebar -->
+  <div id="sidebar-container"></div>
+  <script src="js/sidebar.js"></script>
+
+  <!-- Main Content -->
+  <main class="flex-1 overflow-y-auto p-8 relative">
+    <div class="pb-10 max-w-2xl mx-auto">
+      
+      <div class="mb-8 flex items-center justify-between">
+        <h1 class="text-3xl font-bold flex items-center gap-3">
+          <i data-lucide="plus-circle" class="text-primary w-8 h-8"></i> Add New Expense
+        </h1>
+      </div>
+
+      <div class="bg-surface/80 backdrop-blur-md border border-white/10 shadow-xl rounded-2xl p-8">
+        
+
+        <form id="expense-form" class="space-y-6">
+          <div id="form-error" class="hidden bg-danger/20 text-danger p-3 rounded-lg text-sm border border-danger/30"></div>
+          
+          <div>
+            <label class="block text-sm font-medium text-textMuted mb-2">Amount <span id="currency-label-amt">(...)</span> <span class="text-danger">*</span></label>
+            <div class="relative">
+              <span id="currency-symbol-amt" class="absolute left-4 top-1/2 -translate-y-1/2 text-textMuted">$</span>
+              <input type="number" id="amount" step="0.01" required
+                class="w-full bg-background/50 border border-white/10 rounded-xl py-3 pl-8 pr-4 text-white focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-all">
+            </div>
+          </div>
+
+          <div>
+            <label class="block text-sm font-medium text-textMuted mb-2">Description <span class="text-danger">*</span></label>
+            <input type="text" id="description" required placeholder="e.g. Groceries at Walmart"
+              class="w-full bg-background/50 border border-white/10 rounded-xl py-3 px-4 text-white focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-all">
+          </div>
+
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div>
+              <label class="block text-sm font-medium text-textMuted mb-2">Category</label>
+              <select id="category" class="w-full bg-background/50 border border-white/10 rounded-xl py-3 px-4 text-white focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-all appearance-none cursor-pointer">
+                <option value="">Auto-categorize (AI)</option>
+              </select>
+            </div>
+            
+            <div>
+              <label class="block text-sm font-medium text-textMuted mb-2">Payment Method</label>
+              <select id="paymentMethod" class="w-full bg-background/50 border border-white/10 rounded-xl py-3 px-4 text-white focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-all appearance-none cursor-pointer">
+                <option value="Card">Credit/Debit Card</option>
+                <option value="Cash">Cash</option>
+                <option value="Bank Transfer">Bank Transfer</option>
+                <option value="Other">Other</option>
+              </select>
+            </div>
+          </div>
+
+          <button type="submit" id="submit-btn" class="w-full bg-primary hover:bg-primary/90 text-white font-medium py-3 rounded-xl transition-all shadow-lg shadow-primary/20 flex justify-center items-center gap-2 mt-4">
+            <i data-lucide="check-circle" class="w-5 h-5"></i> Save Expense
+          </button>
+        </form>
+
+      </div>
+    </div>
+  </main>
+
+  <script>
+    lucide.createIcons();
+
+    document.addEventListener('DOMContentLoaded', () => {
+      // Setup currency
+      const curr = localStorage.getItem('currency') || '$';
+      document.getElementById('currency-label-amt').textContent = `(${curr})`;
+      document.getElementById('currency-symbol-amt').textContent = curr;
+
+      // Setup dynamic custom categories
+      const catSelect = document.getElementById('category');
+      const customCats = localStorage.getItem('categories') || 'Food, Travel, Bills, Shopping, Other';
+      const catsArray = customCats.split(',').map(c => c.trim()).filter(c => c);
+      catsArray.forEach(cat => {
+        const op = document.createElement('option');
+        op.value = cat;
+        op.textContent = cat;
+        catSelect.appendChild(op);
+      });
+    });
+
+    // Form Submission
+    const form = document.getElementById('expense-form');
+    const errorBox = document.getElementById('form-error');
+    const submitBtn = document.getElementById('submit-btn');
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      errorBox.classList.add('hidden');
+      
+      const originalBtnText = submitBtn.innerHTML;
+      submitBtn.innerHTML = `<i data-lucide="loader" class="w-5 h-5 animate-spin"></i> Saving...`;
+      submitBtn.disabled = true;
+
+      const payload = {
+        amount: parseFloat(document.getElementById('amount').value),
+        description: document.getElementById('description').value,
+        category: document.getElementById('category').value || undefined, // undefined sends nothing, letting backend auto-categorize if needed
+        paymentMethod: document.getElementById('paymentMethod').value
+      };
+
+      try {
+        const token = localStorage.getItem('token');
+        const res = await fetch('/api/expenses', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          },
+          body: JSON.stringify(payload)
+        });
+
+        if (res.status === 401) logout();
+        
+        if (res.ok) {
+          window.location.href = '/index.html';
+        } else {
+          const data = await res.json();
+          errorBox.textContent = data.msg || 'Failed to add expense';
+          errorBox.classList.remove('hidden');
+        }
+      } catch (err) {
+        console.error(err);
+        errorBox.textContent = 'Network error. Please try again.';
+        errorBox.classList.remove('hidden');
+      } finally {
+        submitBtn.innerHTML = originalBtnText;
+        submitBtn.disabled = false;
+        lucide.createIcons();
+      }
+    });
+  </script>
+</body>
+</html>

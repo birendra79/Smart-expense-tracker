@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Settings - SmartTracker</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="js/api.js"></script>
+  <script src="https://unpkg.com/lucide@latest"></script>
+</head>
+<body class="bg-background text-textMain font-sans flex h-screen overflow-hidden">
+
+  <!-- Sidebar -->
+  <div id="sidebar-container"></div>
+  <script src="js/sidebar.js"></script>
+
+  <!-- Main Content -->
+  <main class="flex-1 overflow-y-auto p-8 relative">
+    <div class="max-w-2xl mx-auto">
+      <h1 class="text-3xl font-bold mb-8">General Settings</h1>
+
+      <div class="bg-surface/80 backdrop-blur-md border border-white/10 shadow-xl rounded-2xl p-6">
+        <form id="settings-form" class="space-y-6">
+          
+          <div>
+            <label class="block text-sm font-medium text-textMuted mb-2">Preferred Currency</label>
+            <select id="currency" class="w-full bg-background border border-white/10 rounded-lg px-4 py-3 focus:outline-none focus:border-primary transition-colors cursor-pointer appearance-none">
+              <option value="$">USD ($)</option>
+              <option value="€">EUR (€)</option>
+              <option value="£">GBP (£)</option>
+              <option value="₹">INR (₹)</option>
+            </select>
+          </div>
+
+          <div>
+            <label class="block text-sm font-medium text-textMuted mb-2">Custom Categories</label>
+            <p class="text-xs text-textMuted mb-3">Add or remove categories separated by commas. These will be used for AI categorization and your dropdowns.</p>
+            <input type="text" id="categories" class="w-full bg-background border border-white/10 rounded-lg px-4 py-3 focus:outline-none focus:border-primary transition-colors" placeholder="Food, Travel, Bills, Shopping, Other">
+          </div>
+
+          <div id="msgBox" class="hidden text-sm px-4 py-3 rounded-lg text-white"></div>
+
+          <button type="submit" class="w-full bg-primary hover:bg-blue-600 text-white font-semibold py-3 rounded-xl transition duration-300">
+            Save Preferences
+          </button>
+        </form>
+      </div>
+
+    </div>
+  </main>
+
+  <script>
+    document.addEventListener('DOMContentLoaded', () => {
+      // Load current settings from localStorage
+      const currentCurrency = localStorage.getItem('currency') || '$';
+      const currentCategories = localStorage.getItem('categories') || 'Food, Travel, Bills, Shopping, Other';
+
+      document.getElementById('currency').value = currentCurrency;
+      document.getElementById('categories').value = currentCategories;
+    });
+
+    document.getElementById('settings-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const currency = document.getElementById('currency').value;
+      const categoriesRaw = document.getElementById('categories').value;
+      
+      const categories = categoriesRaw.split(',').map(c => c.trim()).filter(c => c);
+      if(categories.length === 0) categories.push('Other');
+
+      const msgBox = document.getElementById('msgBox');
+      
+      try {
+        const token = localStorage.getItem('token');
+        const res = await fetch('/api/auth/profile', {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          },
+          body: JSON.stringify({ currency, categories })
+        });
+        
+        if (res.ok) {
+          const data = await res.json();
+          // Update localStorage
+          localStorage.setItem('currency', data.currency);
+          localStorage.setItem('categories', data.categories.join(', '));
+          
+          msgBox.textContent = 'Settings updated successfully!';
+          msgBox.className = 'text-sm px-4 py-3 rounded-lg bg-green-500/20 text-green-400 block';
+        } else {
+          msgBox.textContent = 'Failed to update settings.';
+          msgBox.className = 'text-sm px-4 py-3 rounded-lg bg-red-500/20 text-red-400 block';
+        }
+      } catch (err) {
+        msgBox.textContent = 'Server Error.';
+        msgBox.className = 'text-sm px-4 py-3 rounded-lg bg-red-500/20 text-red-400 block';
+      }
+    });
+  </script>
+</body>
+</html>

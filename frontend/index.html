@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Dashboard - SmartTracker</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="js/api.js"></script>
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="/socket.io/socket.io.js"></script>
+</head>
+<body class="bg-background text-textMain font-sans flex h-screen overflow-hidden">
+
+  <!-- Sidebar -->
+  <div id="sidebar-container"></div>
+  <script src="js/sidebar.js"></script>
+
+  <!-- Main Content -->
+  <main class="flex-1 overflow-y-auto p-8 relative">
+    <div class="pb-10 max-w-7xl mx-auto">
+      
+      <div class="flex justify-between items-center mb-8">
+        <h1 class="text-3xl font-bold">Dashboard Overview</h1>
+        <div class="flex items-center gap-2 text-sm text-green-400 bg-green-400/10 px-3 py-1 rounded-full">
+          <span class="relative flex h-2 w-2">
+            <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+            <span class="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
+          </span>
+          Live Sync Active
+        </div>
+      </div>
+
+      <div id="insights-container" class="hidden mb-8 p-4 rounded-xl bg-gradient-to-r from-primary/20 to-secondary/20 border border-primary/30 flex items-start gap-4">
+        <i data-lucide="trending-up" class="text-primary mt-1 shrink-0"></i>
+        <div>
+          <h3 class="font-semibold text-lg">Monthly Insight</h3>
+          <p id="insights-msg" class="text-textMuted"></p>
+        </div>
+      </div>
+
+      <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">
+        <div class="bg-surface/80 backdrop-blur-md border border-white/10 shadow-xl rounded-2xl p-6">
+          <p class="text-textMuted text-sm font-medium uppercase">Total Spent (This Month)</p>
+          <p id="total-spent" class="text-3xl font-bold mt-2 text-primary">$0.00</p>
+        </div>
+        <div class="bg-surface/80 backdrop-blur-md border border-white/10 shadow-xl rounded-2xl p-6">
+          <p class="text-textMuted text-sm font-medium uppercase">Total Budget</p>
+          <p id="total-budget" class="text-3xl font-bold mt-2 text-accent">$0.00</p>
+        </div>
+        <div class="bg-surface/80 backdrop-blur-md border border-white/10 shadow-xl rounded-2xl p-6">
+          <p class="text-textMuted text-sm font-medium uppercase">Remaining</p>
+          <p id="remaining-budget" class="text-3xl font-bold mt-2">$0.00</p>
+        </div>
+      </div>
+
+      <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+        <div class="bg-surface/80 backdrop-blur-md border border-white/10 shadow-xl rounded-2xl p-6 flex flex-col items-center lg:col-span-1">
+          <h2 class="text-xl font-semibold mb-6">Expenses by Category</h2>
+          <div class="w-full max-w-[250px] relative">
+             <canvas id="pieChart"></canvas>
+          </div>
+        </div>
+
+        <div class="bg-surface/80 backdrop-blur-md border border-white/10 shadow-xl rounded-2xl p-6 lg:col-span-2 overflow-hidden flex flex-col">
+          <div class="flex justify-between items-center mb-6">
+            <h2 class="text-xl font-semibold flex items-center gap-2">
+              <i data-lucide="sparkles" class="text-secondary"></i> AI Budget Suggestions
+            </h2>
+            <button onclick="generateAiInsights()" class="text-textMuted hover:text-white transition-colors p-2 bg-white/5 rounded-lg">
+              <i id="ai-refresh-icon" data-lucide="refresh-cw" class="w-[18px] h-[18px]"></i>
+            </button>
+          </div>
+          <div id="ai-suggestion-box" class="flex-1 bg-background/50 rounded-xl p-5 border border-white/5 text-sm leading-relaxed overflow-y-auto whitespace-pre-wrap">
+            Click refresh to generate AI insights...
+          </div>
+        </div>
+      </div>
+
+      <div class="bg-surface/80 backdrop-blur-md border border-white/10 shadow-xl rounded-2xl p-6 mt-8">
+        <h2 class="text-xl font-semibold mb-6">Recent Transactions</h2>
+        <div class="overflow-x-auto">
+          <table class="w-full text-left border-collapse min-w-max">
+            <thead>
+              <tr class="border-b border-white/10 text-textMuted">
+                <th class="pb-3 px-4 font-medium">Date</th>
+                <th class="pb-3 px-4 font-medium">Description</th>
+                <th class="pb-3 px-4 font-medium">Category</th>
+                <th class="pb-3 px-4 font-medium">Status</th>
+                <th class="pb-3 px-4 font-medium text-right">Amount</th>
+              </tr>
+            </thead>
+            <tbody id="transactions-body">
+              <tr><td colspan="5" class="py-4 text-center text-textMuted">Loading...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+    </div>
+  </main>
+
+  <script>
+    let pieChartInstance = null;
+    const socket = io();
+
+    async function fetchDashboard() {
+      const token = localStorage.getItem('token');
+      try {
+        const res = await fetch('/api/dashboard', {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if(res.status === 401) logout();
+        const data = await res.json();
+        renderDashboard(data);
+      } catch (err) {
+        console.error("Dashboard fetch error:", err);
+      }
+    }
+
+    function renderDashboard(data) {
+      // Summary Cards
+      const now = new Date();
+      const totalSpent = data.expenses.reduce((acc, curr) => {
+        const d = new Date(curr.date);
+        if (d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear()) {
+          return acc + curr.amount;
+        }
+        return acc;
+      }, 0);
+      const totalBudget = data.budgets.reduce((acc, curr) => acc + curr.monthlyLimit, 0);
+      const remaining = totalBudget - totalSpent;
+
+      const curr = localStorage.getItem('currency') || '$';
+      document.getElementById('total-spent').textContent = `${curr}${totalSpent.toFixed(2)}`;
+      document.getElementById('total-budget').textContent = `${curr}${totalBudget.toFixed(2)}`;
+      
+      const remEl = document.getElementById('remaining-budget');
+      remEl.textContent = `${curr}${remaining.toFixed(2)}`;
+      remEl.className = `text-3xl font-bold mt-2 ${remaining < 0 ? 'text-danger' : 'text-white'}`;
+
+      // Monthly Insight
+      if (data.insights) {
+        document.getElementById('insights-container').classList.remove('hidden');
+        document.getElementById('insights-msg').textContent = data.insights.message;
+      }
+
+      // Chart setup
+      const catMap = data.expenses.reduce((acc, curr) => {
+        acc[curr.category] = (acc[curr.category] || 0) + curr.amount;
+        return acc;
+      }, {});
+
+      if (pieChartInstance) pieChartInstance.destroy();
+      const ctx = document.getElementById('pieChart').getContext('2d');
+      pieChartInstance = new Chart(ctx, {
+        type: 'pie',
+        data: {
+          labels: Object.keys(catMap).length ? Object.keys(catMap) : ['No Data'],
+          datasets: [{
+            data: Object.keys(catMap).length ? Object.values(catMap) : [1],
+            backgroundColor: ['#3b82f6', '#8b5cf6', '#10b981', '#f59e0b', '#ef4444', '#3b82f688'],
+            borderWidth: 0
+          }]
+        },
+        options: {
+          plugins: {
+            legend: { position: 'bottom', labels: { color: '#f8fafc' } }
+          }
+        }
+      });
+
+      // Transactions Table
+      const tbody = document.getElementById('transactions-body');
+      tbody.innerHTML = '';
+      
+      const top10 = data.expenses.slice(0, 10);
+      if (top10.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="5" class="py-4 text-center text-textMuted">No expenses recorded yet.</td></tr>';
+      } else {
+        top10.forEach(exp => {
+          const isRecurringTag = exp.isRecurring 
+            ? '<span class="px-2 py-1 bg-primary/20 text-primary text-xs rounded-full">Recurring</span>' 
+            : '';
+          
+          tbody.innerHTML += `
+            <tr class="border-b border-white/5 hover:bg-white/5 transition-colors">
+              <td class="py-3 px-4">${new Date(exp.date).toLocaleDateString()}</td>
+              <td class="py-3 px-4">${exp.description}</td>
+              <td class="py-3 px-4">
+                <span class="bg-white/10 px-2 py-1 rounded text-sm text-secondary">${exp.category}</span>
+              </td>
+              <td class="py-3 px-4">${isRecurringTag}</td>
+              <td class="py-3 px-4 font-medium text-right text-red-400">-${curr}${exp.amount.toFixed(2)}</td>
+            </tr>
+          `;
+        });
+      }
+    }
+
+    async function generateAiInsights() {
+      const box = document.getElementById('ai-suggestion-box');
+      const icon = document.getElementById('ai-refresh-icon');
+      box.innerHTML = 'Analyzing past spending patterns via OpenAI...';
+      icon.classList.add('animate-spin');
+
+      try {
+        const token = localStorage.getItem('token');
+        const res = await fetch('/api/ai/insights', {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        const data = await res.json();
+        box.textContent = data.suggestion || "AI returned no suggestions.";
+      } catch(err) {
+        box.textContent = "Unable to fetch AI insights.";
+      } finally {
+        icon.classList.remove('animate-spin');
+      }
+    }
+
+    document.addEventListener('DOMContentLoaded', () => {
+      fetchDashboard();
+      generateAiInsights();
+      
+      // Socket binding
+      socket.on('expense_updated', () => {
+        fetchDashboard();
+      });
+    });
+  </script>
+</body>
+</html>
